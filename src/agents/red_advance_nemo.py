@@ -229,6 +229,8 @@ def require_nemo():
 
 
 def _model_entry(provider: str, model: str) -> dict:
+    if provider == "openrouter":
+        return {"type": "main", "engine": "openai", "model": model, "api_key_env_var": "OPENROUTER_API_KEY", "parameters": {"base_url": "https://openrouter.ai/api/v1"}}
     if provider == PROVIDER_GEMINI:
         return {
             "type": "main",

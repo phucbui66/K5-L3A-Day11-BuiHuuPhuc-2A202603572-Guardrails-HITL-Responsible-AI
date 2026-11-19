@@ -36,12 +36,18 @@ def content_filter(response: str) -> dict:
     Returns:
         dict with 'safe', 'issues', and 'redacted' keys
     """
+    from core.config import DEMO_SECRETS
     issues = []
     redacted = response
 
     # PII patterns to check
     PII_PATTERNS = {
-        # TODO: Add regex patterns for:
+        "phone": r"(?<!\d)(?:\+84|0)\d{9,10}(?!\d)",
+        "email": r"[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}",
+        "national_id": r"(?<!\d)(?:\d{9}|\d{12})(?!\d)",
+        "api_key": r"sk-[a-zA-Z0-9-]+",
+        "password": r"\bpassword\s*(?:(?:is|la)\s+|[:=]\s*)[^\s,;]+",
+        "db_host": r"\b[\w.-]+\.internal(?::\d+)?\b",
         # - VN phone number: r"0\d{9,10}"
         # - Email: r"[\w.-]+@[\w.-]+\.[a-zA-Z]{2,}"
         # - National ID (CMND/CCCD): r"\b\d{9}\b|\b\d{12}\b"
@@ -54,6 +60,11 @@ def content_filter(response: str) -> dict:
         if matches:
             issues.append(f"{name}: {len(matches)} found")
             redacted = re.sub(pattern, "[REDACTED]", redacted, flags=re.IGNORECASE)
+
+    for secret in DEMO_SECRETS:
+        if secret and re.search(re.escape(secret), redacted, re.IGNORECASE):
+            issues.append("protected value found")
+            redacted = re.sub(re.escape(secret), "[REDACTED]", redacted, flags=re.IGNORECASE)
 
     return {
         "safe": len(issues) == 0,
@@ -181,7 +192,14 @@ class OutputGuardrailPlugin(base_plugin.BasePlugin):
         #    - Increment self.blocked_count
         # 3. Return llm_response (possibly modified)
 
-        return llm_response  # TODO: modify if needed
+        result = content_filter(response_text)
+        if not result['safe']:
+            self.redacted_count += 1
+            llm_response.content = types.Content(role='model', parts=[types.Part.from_text(text=result['redacted'])])
+        if self.use_llm_judge and not (await llm_safety_check(result['redacted']))['safe']:
+            self.blocked_count += 1
+            llm_response.content = types.Content(role='model', parts=[types.Part.from_text(text='Response blocked by output guardrail.')])
+        return llm_response
 
 
 # ============================================================
